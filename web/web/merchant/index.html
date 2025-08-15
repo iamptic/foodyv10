@@ -8,17 +8,17 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" />
   <link rel="stylesheet" href="https://unpkg.com/filepond@^4/dist/filepond.min.css" />
   <link rel="stylesheet" href="https://unpkg.com/filepond-plugin-image-preview@^4/dist/filepond-plugin-image-preview.min.css" />
-<!-- Flatpickr & FilePond libs for "Создать" вкладка -->
+  <!-- Flatpickr & FilePond libs -->
   <script defer src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ru.js"></script>
   <script defer src="https://unpkg.com/filepond-plugin-image-preview@^4/dist/filepond-plugin-image-preview.min.js"></script>
   <script defer src="https://unpkg.com/filepond-plugin-file-validate-type@^1/dist/filepond-plugin-file-validate-type.min.js"></script>
   <script defer src="https://unpkg.com/filepond-plugin-file-validate-size@^2/dist/filepond-plugin-file-validate-size.min.js"></script>
   <script defer src="https://unpkg.com/filepond@^4/dist/filepond.min.js"></script>
-  <!-- FOODY API fallback for new.html compatibility -->
+  <!-- FOODY API runtime config -->
   <script>window.foodyApi = (window.__FOODY__ && window.__FOODY__.FOODY_API) || window.foodyApi || 'https://foodyback-production.up.railway.app';</script>
   <script defer src="/config.js"></script>
-  <script defer src="/web/merchant/app.js?v=1755273592"></script>
+  <script defer src="/web/merchant/app.js?v=auth-slider-1"></script>
   <script defer src="./create.enhance.js"></script>
 </head>
 <body>
@@ -48,51 +48,41 @@
       <!-- AUTH -->
       <section class="pane" id="auth">
         <div class="card card-glass">
-          <div class="card-title">Быстрый старт</div>
-          <div class="grid two">
-            <div class="card">
-              <div class="card-subtitle">1) Создать ресторан</div>
-              <form id="registerForm" class="form">
-                <label>Название
-                  <input name="name" placeholder="Кафе Плюс" required>
-                </label>
-                <label>Телефон
-                  <input name="phone" placeholder="+7 900 123-45-67" required>
-                </label>
-                <button class="btn btn-primary">Создать</button>
-              </form>
-            </div>
-            <div class="card">
-              <div class="card-subtitle">2) Войти по данным</div>
-              <form id="loginForm" class="form">
-                <label>Restaurant ID
-                  <input name="restaurant_id" placeholder="RID_..." required>
-                </label>
-                <label>API Key
-                  <input name="api_key" placeholder="KEY_..." required>
-                </label>
-                <button class="btn btn-primary">Войти</button>
-              </form>
-            </div>
-          </div>
-          <div class="hint">После регистрации вы получите <b>Restaurant ID</b> и <b>API Key</b>. Данные сохраняются в браузере.</div>
-        </div>
-      </section>
+          <div class="card-title">Войдите или зарегистрируйтесь</div>
 
-      <!-- DASHBOARD -->
-      <section class="pane active" id="dashboard">
-        <div class="stats">
-          <div class="stat">
-            <div class="stat-val" id="statOffers">—</div>
-            <div class="stat-label">Активные офферы</div>
+          <div class="auth-switch">
+            <input type="radio" name="authmode" id="mode-login" checked>
+            <input type="radio" name="authmode" id="mode-register">
+            <div class="track"><span class="thumb"></span></div>
+            <div class="labels">
+              <label for="mode-login">Вход</label>
+              <label for="mode-register">Регистрация</label>
+            </div>
           </div>
-          <div class="stat">
-            <div class="stat-val" id="statQty">—</div>
-            <div class="stat-label">Остаток шт.</div>
-          </div>
-          <div class="stat">
-            <div class="stat-val" id="statDisc">—</div>
-            <div class="stat-label">Средняя скидка</div>
+
+          <div class="auth-forms">
+            <form id="loginForm" class="form">
+              <label>Телефон или Email
+                <input name="login" placeholder="+7 900 000 00 00 / you@cafe.com" required>
+              </label>
+              <label>Пароль
+                <input name="password" type="password" placeholder="••••••••" required>
+              </label>
+              <button class="btn btn-primary" type="submit">Войти</button>
+            </form>
+
+            <form id="registerForm" class="form">
+              <label>Название ресторана
+                <input name="name" placeholder="Кафе Плюс" required>
+              </label>
+              <label>Телефон или Email
+                <input name="login" placeholder="+7 900 000 00 00 / you@cafe.com" required>
+              </label>
+              <label>Пароль
+                <input name="password" type="password" placeholder="мин. 6 символов" minlength="6" required>
+              </label>
+              <button class="btn btn-primary" type="submit">Зарегистрироваться</button>
+            </form>
           </div>
         </div>
 
@@ -134,14 +124,14 @@
             <label>Остаток / Количество, шт
               <input name="qty_total" type="number" min="1" step="1" value="1" required>
             </label>
-            <label class="full">Истекает
-              <input id="expires_at" name="expires_at" placeholder="Выберите дату и время" required>
+            <label class="full">Действительно до
+              <input name="expires_at" id="expires_at" placeholder="Сегодня 21:00" required>
               <div id="quickTime" class="quick-group" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
                 <button type="button" class="btn-ghost quick-btn" data-mins="30">+30 мин</button>
                 <button type="button" class="btn-ghost quick-btn" data-mins="60">+1 час</button>
                 <button type="button" class="btn-ghost quick-btn" data-mins="120">+2 часа</button>
                 <button type="button" class="btn-ghost quick-btn" data-eod="21:00">Сегодня 21:00</button>
-                              <button type="button" class="btn-ghost quick-btn" data-close="1">К закрытию</button>
+                <button type="button" class="btn-ghost quick-btn" data-close="1">К закрытию</button>
               </div>
               <div class="hint">Быстрый выбор: 30–120 минут, «Сегодня 21:00» или «К закрытию».</div>
               <div class="hint">Таймер скидок привязан к этой точке.</div>
@@ -149,11 +139,11 @@
             <label class="full">Категория
               <select name="category">
                 <option value="ready_meal">Готовые блюда</option>
-  <option value="bakery">Выпечка</option>
-  <option value="sushi">Суши/роллы</option>
-  <option value="salad">Салаты</option>
-  <option value="dessert">Десерты</option>
-  <option value="other">Другое</option>
+                <option value="bakery">Выпечка</option>
+                <option value="sushi">Суши/роллы</option>
+                <option value="salad">Салаты</option>
+                <option value="dessert">Десерты</option>
+                <option value="other">Другое</option>
               </select>
             </label>
             <label class="full">Фото (опционально)
@@ -167,9 +157,12 @@
             <label class="full">
               <textarea name="description" rows="3" placeholder="Кратко: состав, для скольких порций и т.п."></textarea>
             </label>
-            <button class="btn btn-primary full">Создать оффер</button>
+            <div class="full" style="display:flex;gap:8px;align-items:center;justify-content:flex-end;">
+              <button class="btn btn-primary" type="submit">Сохранить оффер</button>
+            </div>
           </form>
-        </div></section>
+        </div>
+      </section>
 
       <!-- PROFILE -->
       <section class="pane" id="profile">
@@ -177,29 +170,28 @@
           <div class="card-title">Профиль ресторана</div>
           <form id="profileForm" class="form grid two">
             <label>Название
-              <input name="name">
+              <input name="name" placeholder="Кафе Плюс">
             </label>
             <label>Телефон
-              <input name="phone">
+              <input name="phone" placeholder="+7 900 000 00 00">
             </label>
             <label class="full">Адрес
               <input name="address" placeholder="Город, улица, дом">
             </label>
-            <label>Широта
-              <input name="lat" type="number" step="0.000001">
+            <label>Lat
+              <input name="lat" placeholder="55.75">
             </label>
-            <label>Долгота
-              <input name="lng" type="number" step="0.000001">
+            <label>Lng
+              <input name="lng" placeholder="37.61">
             </label>
-            <label>Время закрытия
-              <input name="close_time" type="time">
+            <label>К закрытию в (часы:мин)
+              <input name="close_time" type="time" placeholder="23:00">
             </label>
-            <button class="btn btn-primary full">Сохранить</button>
+            <div class="full" style="display:flex;gap:8px;justify-content:flex-end;">
+              <button class="btn btn-primary" type="submit">Сохранить</button>
+            </div>
           </form>
-        </div>
-        <div class="card">
-          <div class="card-title">Текущие данные</div>
-          <pre id="profileDump" class="dump">—</pre>
+          <pre id="profileDump" class="dump small">—</pre>
         </div>
       </section>
 
@@ -227,39 +219,29 @@
 
     <div id="toast"></div>
   </div>
-<!-- Fallback: enable tabs/gating even if app.js failed to load -->
+
+  <!-- Fallback tabs gate -->
   <script>
     (function(){
-      try {
-        function $$ (s, r){ return Array.from((r||document).querySelectorAll(s)); }
-        function activateTab(tab){
-          $$('.seg-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-          $$('.pane').forEach(p => p.classList.toggle('active', p.id === tab));
-        }
-        // Click delegation for top segmented tabs
-        var tabs = document.getElementById('tabs');
-        if (tabs) {
-          tabs.addEventListener('click', function(e){
-            var btn = e.target.closest && e.target.closest('.seg-btn');
-            if (!btn) return;
-            var tab = btn.getAttribute('data-tab');
-            if (tab) activateTab(tab);
-          }, { passive: true });
-        }
-        // Basic gate based on localStorage
-        var rid = localStorage.getItem('foody_restaurant_id') || '';
-        var key = localStorage.getItem('foody_key') || '';
-        if (!rid || !key) {
+      function $(s,r=document){return r.querySelector(s)}
+      function $$(s,r=document){return Array.from(r.querySelectorAll(s))}
+      function activateTab(tab){
+        $$('.seg-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+        $$('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+        $$('.pane').forEach(p=>p.classList.toggle('active', p.id===tab));
+      }
+      try{
+        const rid = localStorage.getItem('foody_restaurant_id');
+        const key = localStorage.getItem('foody_key');
+        const tabs = $('#tabs');
+        if(!rid || !key){
           activateTab('auth');
-          if (tabs) tabs.style.display = 'none';
-          var bn = document.querySelector('.bottom-nav'); if (bn) bn.style.display = 'none';
+          if(tabs) tabs.style.display='none';
+          var bn = document.querySelector('.bottom-nav'); if (bn) bn.style.display='none';
         } else {
           activateTab('dashboard');
         }
-        console.log('[Foody] Fallback tabs initialized');
-      } catch (e) {
-        console.warn('[Foody] Fallback init error', e);
-      }
+      }catch(e){}
     })();
   </script>
 </body>

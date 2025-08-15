@@ -216,3 +216,25 @@ input:focus, textarea:focus { border-color: var(--brand-2); box-shadow: 0 0 0 2p
 /* FilePond basic dark */
 .filepond--panel-root { background: #0d1218; border: 1px dashed var(--border); }
 .filepond--drop-label { color: var(--subtext); }
+
+
+/* === Auth slider === */
+.auth-switch { position: relative; width: 100%; max-width: 360px; margin: 8px auto 16px; }
+.auth-switch input[type="radio"]{ display:none; }
+.auth-switch .track{
+  position: relative; height: 36px; border-radius: 999px;
+  background: rgba(255,255,255,.06); border: 1px solid var(--border);
+  overflow: hidden;
+}
+.auth-switch .thumb{
+  position: absolute; top: 3px; left: 3px; width: calc(50% - 6px); height: 30px;
+  border-radius: 999px; background: linear-gradient(90deg, rgba(97,211,159,.25), rgba(74,181,241,.25));
+  border: 1px solid rgba(74,181,241,.35); transition: transform .25s ease;
+}
+.auth-switch .labels{
+  position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr;
+  place-items: center; font-weight: 600; font-size: 14px; color: var(--text);
+}
+#mode-register:checked ~ .track .thumb{ transform: translateX(100%); }
+.auth-forms { display: grid; gap: 16px; }
+.auth-forms form{ display: grid; gap: 10px; }

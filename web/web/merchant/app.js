@@ -1,33 +1,23 @@
-(() => { console.log('[Foody] app.js loaded');
+(() => { console.log('[Foody] app.js (auth slider) loaded');
   const $ = (s, r=document) => r.querySelector(s);
   const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
-  function bindPhotoPreview(){
+  const on = (sel, evt, fn) => { const el = $(sel); if (el) el.addEventListener(evt, fn, { passive: false }); };
+
+  function moneyToCents(v){ try { return Math.round(parseFloat(v||'0')*100) } catch(e){ return 0 } }
+  function dtLocalToIso(v){
+    if (!v) return null;
     try {
-      const el = document.getElementById('photo');
-      if (!el || el._previewBound) return;
-      el._previewBound = true;
-      el.addEventListener('change', () => {
-        // If FilePond fully applied, it handles previews
-        if (document.querySelector('.filepond--root')) return;
-        const f = el.files && el.files[0];
-        const wrap = document.getElementById('photoPreviewWrap');
-        const img = document.getElementById('photoPreview');
-        if (!wrap || !img) return;
-        if (f) {
-          const url = URL.createObjectURL(f);
-          img.src = url;
-          wrap.classList.remove('hidden');
-          img.onload = () => URL.revokeObjectURL(url);
-        } else {
-          wrap.classList.add('hidden');
-          img.removeAttribute('src');
-        }
-      });
-    } catch (e) { console.warn('bindPhotoPreview failed', e); }
+      // flatpickr provides 'Y-m-d H:i' local time; treat as local, convert to ISO
+      const [d, t] = v.split(' ');
+      const [Y,M,D] = d.split('-').map(x=>parseInt(x,10));
+      const [h,m] = (t||'00:00').split(':').map(x=>parseInt(x,10));
+      const dt = new Date(Y, (M-1), D, h, m);
+      return new Date(dt.getTime() - dt.getTimezoneOffset()*60000).toISOString().slice(0,16)+':00Z';
+    } catch(e){ return null; }
   }
-  const on = (sel, evt, fn) => { const el = $(sel); if (el) el.addEventListener(evt, fn); };
+
   const state = {
-    api: (window.__FOODY__ && window.__FOODY__.FOODY_API) || "https://foodyback-production.up.railway.app",
+    api: (window.__FOODY__ && window.__FOODY__.FOODY_API) || window.foodyApi || 'https://foodyback-production.up.railway.app',
     rid: localStorage.getItem('foody_restaurant_id') || '',
     key: localStorage.getItem('foody_key') || '',
   };
@@ -60,16 +50,16 @@
     if (btn.dataset.tab) activateTab(btn.dataset.tab);
   });
 
-  // Auth gating: if no creds — show AUTH pane only
+  // Auth gating
   function gate() {
     if (!state.rid || !state.key) {
       activateTab('auth');
-      $('#tabs').style.display = 'none';
-      $('.bottom-nav').style.display = 'none';
+      const tabs = $('#tabs'); if (tabs) tabs.style.display = 'none';
+      const bn = $('.bottom-nav'); if (bn) bn.style.display = 'none';
       return false;
     }
-    $('#tabs').style.display = '';
-    $('.bottom-nav').style.display = '';
+    const tabs = $('#tabs'); if (tabs) tabs.style.display = '';
+    const bn = $('.bottom-nav'); if (bn) bn.style.display = '';
     activateTab('dashboard');
     return true;
   }
@@ -96,11 +86,33 @@
     return ct.includes('application/json') ? res.json() : res.text();
   }
 
-  // AUTH
+  // ===== AUTH (slider) =====
+  // Toggle forms based on radio
+  function bindAuthToggle(){
+    const loginForm = $('#loginForm');
+    const regForm = $('#registerForm');
+    const modeLogin = $('#mode-login');
+    const modeReg = $('#mode-register');
+    const forms = $('.auth-forms');
+    function apply(){
+      if (modeLogin && modeLogin.checked) {
+        loginForm.style.display='grid'; regForm.style.display='none';
+        forms.setAttribute('data-mode','login');
+      } else {
+        regForm.style.display='grid'; loginForm.style.display='none';
+        forms.setAttribute('data-mode','register');
+      }
+    }
+    if (modeLogin) modeLogin.addEventListener('change', apply);
+    if (modeReg) modeReg.addEventListener('change', apply);
+    apply();
+  }
+  bindAuthToggle();
+
   on('#registerForm','submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const payload = { name: fd.get('name')?.trim(), phone: fd.get('phone')?.trim() };
+    const payload = { name: fd.get('name')?.trim(), login: fd.get('login')?.trim(), password: fd.get('password')?.trim() };
     try {
       const r = await api('/api/v1/merchant/register_public', { method: 'POST', body: JSON.stringify(payload) });
       if (!r.restaurant_id || !r.api_key) throw new Error('Неожиданный ответ API');
@@ -111,19 +123,22 @@
       gate();
     } catch (err) { console.error(err); showToast('Ошибка регистрации: ' + err.message); }
   });
-  on('#loginForm','submit', (e) => {
+
+  on('#loginForm','submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    state.rid = fd.get('restaurant_id')?.trim();
-    state.key = fd.get('api_key')?.trim();
-    if (!state.rid || !state.key) return showToast('Введите ID и ключ');
-    localStorage.setItem('foody_restaurant_id', state.rid);
-    localStorage.setItem('foody_key', state.key);
-    showToast('Вход выполнен ✅');
-    gate();
+    const payload = { login: fd.get('login')?.trim(), password: fd.get('password')?.trim() };
+    try {
+      const r = await api('/api/v1/merchant/login', { method: 'POST', body: JSON.stringify(payload) });
+      state.rid = r.restaurant_id; state.key = r.api_key;
+      localStorage.setItem('foody_restaurant_id', state.rid);
+      localStorage.setItem('foody_key', state.key);
+      showToast('Вход выполнен ✅');
+      gate();
+    } catch (err) { console.error(err); showToast('Ошибка входа: ' + err.message); }
   });
 
-  // PROFILE
+  // ===== PROFILE =====
   async function loadProfile() {
     if (!state.rid || !state.key) return;
     try {
@@ -149,19 +164,23 @@
       close_time: fd.get('close_time') || null,
     };
     try {
-      const resp = await api('/api/v1/merchant/profile', { method: 'POST', body: JSON.stringify(payload) });
-      $('#profileDump').textContent = JSON.stringify(resp || payload, null, 2);
-      showToast('Профиль сохранён ✅');
+      await api('/api/v1/merchant/profile', { method: 'PUT', body: JSON.stringify(payload) });
+      showToast('Профиль обновлен ✅'); loadProfile();
     } catch (err) { console.error(err); showToast('Ошибка сохранения: ' + err.message); }
   });
 
-  // OFFERS
-  function moneyToCents(x){ return Math.round((Number(x)||0) * 100); }
-  function dtLocalToIso(s){
-    if(!s) return null;
-    const str = String(s).trim().replace(' ', 'T');
-    const d = new Date(str);
-    return isNaN(d) ? null : d.toISOString();
+  // ===== CREATE OFFER =====
+  function initCreateTab(){
+    try {
+      if (window.flatpickr && $('#expires_at')) {
+        if (window.flatpickr.l10ns && window.flatpickr.l10ns.ru) { flatpickr.localize(flatpickr.l10ns.ru); }
+        flatpickr('#expires_at', {
+          enableTime: true, time_24hr: true, minuteIncrement: 5,
+          dateFormat: 'Y-m-d H:i', altInput: true, altFormat: 'd.m.Y H:i',
+          defaultDate: new Date(Date.now() + 60*60*1000), minDate: 'today'
+        });
+      }
+    } catch (e) {}
   }
 
   on('#offerForm','submit', async (e) => {
@@ -171,14 +190,14 @@
     const payload = {
       restaurant_id: state.rid,
       title: fd.get('title')?.trim(),
-      price_cents: moneyToCents(fd.get('price')),
-      original_price_cents: moneyToCents(fd.get('original_price')),
-      qty_total: Number(fd.get('qty_total') || fd.get('stock')) || 1,
-      qty_left: Number(fd.get('qty_total') || fd.get('stock')) || 1,
+      price: parseFloat(fd.get('price') || '0'),
+      original_price: fd.get('original_price') ? parseFloat(fd.get('original_price')) : null,
+      qty_total: Number(fd.get('qty_total')) || 1,
+      qty_left: Number(fd.get('qty_total')) || 1,
       expires_at: dtLocalToIso(fd.get('expires_at')),
       image_url: fd.get('image_url')?.trim() || null,
-      \1
       category: (fd.get('category')||'').trim() || null,
+      description: fd.get('description')?.trim() || null,
     };
     try {
       await api('/api/v1/merchant/offers', { method: 'POST', body: JSON.stringify(payload) });
@@ -194,20 +213,9 @@
     const root = $('#offerList');
     root.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div>';
     try {
-      let list = [];
-      try {
-        list = await api(`/api/v1/merchant/offers?restaurant_id=${encodeURIComponent(state.rid)}`);
-      } catch (_) {
-        const all = await api(`/api/v1/offers`);
-        list = Array.isArray(all) ? all.filter(x => x.restaurant_id === state.rid) : [];
-      }
-      renderOffers(list);
-      updateStats(list);
-    } catch (err) {
-      console.error(err);
-      root.innerHTML = '<div class="hint">Не удалось загрузить офферы</div>';
-      showToast('Ошибка загрузки: ' + err.message);
-    }
+      const items = await api(`/api/v1/merchant/offers?restaurant_id=${encodeURIComponent(state.rid)}`);
+      renderOffers(items || []); updateDashboardStats(items || []);
+    } catch (err) { console.error(err); root.innerHTML = '<div class="hint">Не удалось загрузить</div>'; }
   }
 
   function renderOffers(items){
@@ -216,7 +224,7 @@
       root.innerHTML = '<div class="hint">Пока нет офферов</div>';
       return;
     }
-    const head = `<div class="row head"><div>Название</div><div>Цена</div><div>Старая</div><div>Скидка</div><div>Остаток</div><div>До</div></div>`;
+    const head = `<div class="row head"><div>Название</div><div>Цена</div><div>Скидка</div><div>Остаток</div><div>До</div></div>`;
     const rows = items.map(o => {
       const price = (o.price_cents||0)/100;
       const old = (o.original_price_cents||0)/100;
@@ -224,8 +232,7 @@
       const exp = o.expires_at ? new Date(o.expires_at).toLocaleString() : '—';
       return `<div class="row">
         <div>${o.title || '—'}</div>
-        <div>${price.toFixed(0)} ₽</div>
-        <div>${old? old.toFixed(0)+' ₽':'—'}</div>
+        <div>${price.toFixed(2)}</div>
         <div>${disc?`-${disc}%`:'—'}</div>
         <div>${o.qty_left ?? '—'} / ${o.qty_total ?? '—'}</div>
         <div>${exp}</div>
@@ -234,6 +241,21 @@
     root.innerHTML = head + rows;
   }
 
+  function updateDashboardStats(items){
+    const active = items.length;
+    const qty = items.reduce((s,x)=> s + (Number(x.qty_left)||0), 0);
+    const discs = items.map(o => {
+      const p = (o.price_cents||0)/100;
+      const old = (o.original_price_cents||0)/100;
+      return old>0 ? Math.round((1 - p/old)*100) : 0;
+    }).filter(Boolean);
+    const avg = discs.length ? Math.round(discs.reduce((a,b)=>a+b,0)/discs.length) : 0;
+    $('#statActive').textContent = String(active);
+    $('#statQty').textContent = String(qty);
+    $('#statDisc').textContent = avg ? `-${avg}%` : '—';
+  }
+
+  // Dashboard (reuse offers)
   async function refreshDashboard(){
     await loadOffers();
     const list = $('#offerList').querySelectorAll('.row:not(.head)');
@@ -243,27 +265,13 @@
     list.forEach(row => {
       const name = row.children[0]?.textContent || '—';
       const price = row.children[1]?.textContent || '—';
-      const till = row.children[5]?.textContent || '—';
-      const card = document.createElement('div');
-      card.className = 'item';
-      card.innerHTML = `<div><b>${name}</b><div class="muted">до ${till}</div></div><span class="badge">${price}</span>`;
-      box.appendChild(card);
+      const left = row.children[3]?.textContent || '—';
+      const exp = row.children[4]?.textContent || '—';
+      const item = document.createElement('div');
+      item.className = 'item';
+      item.innerHTML = `<div class="text"><div class="name">${name}</div><div class="muted">${exp}</div></div><div class="badge">${price} • ${left}</div>`;
+      box.appendChild(item);
     });
-  }
-
-  function updateStats(items){
-    items = Array.isArray(items) ? items : [];
-    const active = items.length;
-    const qty = items.reduce((s,x)=> s + (Number(x.qty_left)||0), 0);
-    const discs = items.map(o => {
-      const p = (o.price_cents||0)/100;
-      const old = (o.original_price_cents||0)/100;
-      return old>0 ? (1 - p/old) : 0;
-    }).filter(x=>x>0);
-    const avg = discs.length ? Math.round((discs.reduce((a,b)=>a+b,0)/discs.length)*100) : 0;
-    $('#statOffers').textContent = String(active);
-    $('#statQty').textContent = String(qty);
-    $('#statDisc').textContent = avg ? `-${avg}%` : '—';
   }
 
   // EXPORT
@@ -280,136 +288,36 @@
       a.download = `foody_offers_${state.rid}.csv`;
       a.click(); URL.revokeObjectURL(a.href);
       showToast('CSV скачан ✅');
-    } catch (err) { console.error(err); showToast('Ошибка экспорта: ' + err.message); }
+    } catch (err) { console.error(err); showToast('Ошибка экспорта: ' + err.message) }
   });
-  function updateCreds(){
-    $('#creds').textContent = JSON.stringify({ restaurant_id: state.rid, api_key: state.key, api: state.api }, null, 2);
-  }
 
-  // Create tab init (Flatpickr + FilePond)
-  async function fetchProfileCloseTime(){
+  // Photo preview (native fallback if FilePond isn't active)
+  function bindPhotoPreview(){
     try {
-      const p = await api(`/api/v1/merchant/profile?restaurant_id=${encodeURIComponent(state.rid)}`);
-      state.close_time = (p && p.close_time) || null;
-      return state.close_time;
-    } catch (err) { console.warn('fetchProfileCloseTime', err); return null; }
-  }
-  let createInited = false;
-  async function initCreateTab(){
-    if (createInited) return;
-    createInited = true;
-    try {
-      if (window.flatpickr && document.getElementById('expires_at')) {
-        flatpickr.localize(flatpickr.l10ns?.ru || {});
-        const expiresPicker = flatpickr("#expires_at", {
-          enableTime: true, time_24hr: true, minuteIncrement: 5,
-          dateFormat: "Y-m-d H:i",
-          altInput: true, altFormat: "d.m.Y H:i",
-          defaultDate: new Date(Date.now() + 60*60*1000),
-          minDate: "today"
-        });
-        window._foodyExpiresPicker = expiresPicker;
-        // Quick time buttons
-        const qt = document.getElementById('quickTime');
-        if (qt && expiresPicker) {
-          qt.addEventListener('click', async (e) => {
-            const btn = e.target.closest('button'); if (!btn) return;
-            const mins = btn.getAttribute('data-mins');
-            const eod = btn.getAttribute('data-eod'); // format "HH:MM"
-            let target = null;
-            if (mins) {
-              const add = parseInt(mins, 10) || 0;
-              target = new Date(Date.now() + add*60*1000);
-            } else if (eod) {
-              const [hh, mm] = eod.split(':').map(x=>parseInt(x,10)||0);
-              const d = new Date();
-              d.setHours(hh, mm, 0, 0);
-              if (d < new Date()) d.setDate(d.getDate()+1);
-              target = d;
-            } else if (btn.hasAttribute('data-close')) {
-              let hhmm = state.close_time;
-              if (!hhmm) hhmm = await fetchProfileCloseTime();
-              if (!hhmm) { showToast('Укажите время закрытия в профиле'); return; }
-              const [hh, mm] = String(hhmm).split(':').map(x=>parseInt(x,10)||0);
-              const d = new Date();
-              d.setHours(hh, mm, 0, 0);
-              if (d < new Date()) d.setDate(d.getDate()+1);
-              target = d;
-            }
-            if (target) expiresPicker.setDate(target, true);
-          }, { passive: true });
+      const el = document.getElementById('photo');
+      if (!el || el._previewBound) return;
+      el._previewBound = true;
+      el.addEventListener('change', () => {
+        if (document.querySelector('.filepond--root')) return; // FilePond handles previews
+        const f = el.files && el.files[0];
+        const wrap = document.getElementById('photoPreviewWrap');
+        const img = document.getElementById('photoPreview');
+        if (!wrap || !img) return;
+        if (f) {
+          const reader = new FileReader();
+          reader.onload = () => { img.src = reader.result; wrap.classList.remove('hidden'); };
+          reader.readAsDataURL(f);
+        } else {
+          wrap.classList.add('hidden'); img.removeAttribute('src');
         }
-        }
-      const photoEl = document.getElementById('photo');
-      // Fallback preview (works without FilePond)
-      if (photoEl) {
-        photoEl.addEventListener('change', () => {
-          if (document.querySelector('.filepond--root')) return; // уже применён FilePond — превью делает он
-          const f = photoEl.files && photoEl.files[0];
-          const wrap = document.getElementById('photoPreviewWrap');
-          const img = document.getElementById('photoPreview');
-          if (f && wrap && img) {
-            const url = URL.createObjectURL(f);
-            img.src = url;
-            wrap.classList.remove('hidden');
-          }
-        });
-      }
-      const _inp = document.getElementById('photo');
-      if (window.FilePond && _inp && !_inp._pond) {
-        try {
-          if (!window.__FOODY_POND_PLUGINS__) {
-            window.__FOODY_POND_PLUGINS__ = true;
-          }
-          const plugs = [];
-          if (window.FilePondPluginImagePreview) plugs.push(window.FilePondPluginImagePreview);
-          if (window.FilePondPluginFileValidateType) plugs.push(window.FilePondPluginFileValidateType);
-          if (window.FilePondPluginFileValidateSize) plugs.push(window.FilePondPluginFileValidateSize);
-          if (plugs.length) FilePond.registerPlugin(...plugs);
-        } catch(e) { console.warn('FilePond plugins', e); }
-        const pond = FilePond.create(document.getElementById('photo'), {
-          credits: false,
-          credits: false,
-          allowMultiple: false,
-          labelIdle: 'Перетащите фото или <span class="filepond--label-action">выберите</span>',
-          acceptedFileTypes: ['image/*'],
-          maxFileSize: '5MB',
-          acceptedFileTypes: ['image/*'],
-          maxFileSize: '5MB',
-          server: {
-            process: {
-              url: (window.foodyApi || state.api) + '/upload',
-              method: 'POST',
-              onload: (res) => {
-                try {
-                  const data = JSON.parse(res);
-                  if (data && data.url) {
-                    document.getElementById('image_url').value = data.url;
-                    return data.url;
-                  }
-                } catch (e) {}
-                return null;
-              }
-            }
-          }
-        });
-      }
-      // ensure preview for plain input as fallback
-      bindPhotoPreview();
-    } catch (err) { console.warn('Create init failed', err); }
+      });
+    } catch (e) {}
   }
-
-  // If "Создать" уже активна (после fallback/перезагрузки) — инициируем UI
-  try {
-    const cPane = document.querySelector('#create');
-    if (cPane && cPane.classList.contains('active')) {
-      initCreateTab && initCreateTab();
-    }
-  } catch (_) {}
-  
-  // Early preview binding
   bindPhotoPreview();
 
   // Init
-  gate();
+  document.addEventListener('DOMContentLoaded', () => {
+    gate();
+  });
+
 })();

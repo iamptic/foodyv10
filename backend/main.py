@@ -1,4 +1,4 @@
-# Foody backend (FastAPI) — v10 auth/merchant patch
+# Foody backend (FastAPI) — v10 auth/merchant + sequence hotfix
 import os
 import re
 import mimetypes
@@ -25,7 +25,7 @@ R2_BUCKET = os.environ.get("R2_BUCKET")
 R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID")
 R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY")
 
-# Auth hashing (fallback if bcrypt is unavailable)
+# ====== Password hashing ======
 try:
     import bcrypt  # type: ignore
     def hash_password(p: str) -> str:
@@ -49,8 +49,7 @@ def normalize_login(s: str) -> str:
     s = (s or "").strip()
     if "@" in s:
         return s.lower()
-    # digits only for phone
-    return re.sub(r"\D+", "", s)
+    return re.sub(r"\D+", "", s)  # digits only for phone
 
 def gen_api_key() -> str:
     return uuid4().hex + uuid4().hex  # 64 hex chars
@@ -66,9 +65,8 @@ app.add_middleware(
 
 _pool: Optional[asyncpg.Pool] = None
 
-# ====== DB bootstrap ======
+# ====== DB bootstrap/migrations ======
 async def _initialize(conn: asyncpg.Connection):
-    # Base tables
     await conn.execute(
         """
         CREATE TABLE IF NOT EXISTS merchants (
@@ -96,6 +94,7 @@ async def _initialize(conn: asyncpg.Connection):
           original_price NUMERIC(12,2),
           qty_total INT,
           qty_left INT,
+          stock INT,
           image_url TEXT NOT NULL,
           expires_at TIMESTAMPTZ NOT NULL,
           status TEXT NOT NULL DEFAULT 'active',
@@ -106,16 +105,7 @@ async def _initialize(conn: asyncpg.Connection):
         CREATE INDEX IF NOT EXISTS idx_offers_status ON offers(status);
         """
     )
-    # Ensure demo merchant (id=1) exists
-    await conn.execute(
-        """
-        INSERT INTO merchants (id, name, address, phone)
-        VALUES (1, 'Demo Restaurant', 'Demo address', '+000000000')
-        ON CONFLICT (id) DO NOTHING;
-        """
-    )
 
-# Compatibility shim for previous versions (adds columns if missing)
 async def _migrate_auth(conn: asyncpg.Connection):
     stmts = [
         "ALTER TABLE merchants ADD COLUMN IF NOT EXISTS email TEXT",
@@ -127,10 +117,11 @@ async def _migrate_auth(conn: asyncpg.Connection):
         "ALTER TABLE merchants ADD COLUMN IF NOT EXISTS close_time TIME",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_merchants_api_key ON merchants(api_key)",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_merchants_auth_login ON merchants(auth_login)",
-
+        # offers compatibility
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS original_price NUMERIC(12,2)",
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS qty_total INT",
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS qty_left INT",
+        "ALTER TABLE offers ADD COLUMN IF NOT EXISTS stock INT",
     ]
     for q in stmts:
         try:
@@ -138,10 +129,26 @@ async def _migrate_auth(conn: asyncpg.Connection):
         except Exception:
             pass
 
+async def _fix_sequences(conn: asyncpg.Connection):
+    # Align sequences with current max(id) to prevent duplicate key on id=1
+    try:
+        await conn.execute(
+            "SELECT setval(pg_get_serial_sequence('merchants','id'), COALESCE((SELECT MAX(id) FROM merchants), 0))"
+        )
+    except Exception:
+        pass
+    try:
+        await conn.execute(
+            "SELECT setval(pg_get_serial_sequence('offers','id'), COALESCE((SELECT MAX(id) FROM offers), 0))"
+        )
+    except Exception:
+        pass
+
 async def _ensure(conn: asyncpg.Connection):
     if RUN_MIGRATIONS:
         await _initialize(conn)
         await _migrate_auth(conn)
+        await _fix_sequences(conn)
 
 @app.on_event("startup")
 async def pool():
@@ -172,11 +179,6 @@ def _r2_client():
 NO_PHOTO_URL = "https://placehold.co/800x600/png?text=Foody"
 
 def _r2_public_url(key: str) -> str:
-    """
-    Account endpoint looks like: https://<account>.r2.cloudflarestorage.com
-    Public URL:                   https://pub-<account>.r2.dev/<bucket>/<key>
-    Fallback:                     <endpoint>/<bucket>/<key>
-    """
     try:
         host = (R2_ENDPOINT or "").split("//", 1)[-1]
         account = host.split(".", 1)[0]
@@ -218,13 +220,12 @@ def _parse_expires_at(value: str) -> datetime:
         dt = datetime.strptime(value, "%Y-%m-%d %H:%M")
         return dt.replace(tzinfo=timezone.utc)
     except ValueError:
-        # ISO with optional Z
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt
 
-# ====== Legacy create offer (no /api/v1 prefix) ======
+# ====== Legacy create offer (compat) ======
 @app.post("/merchant/offers")
 async def legacy_create_offer(payload: Dict[str, Any] = Body(...)):
     try:
@@ -238,31 +239,48 @@ async def legacy_create_offer(payload: Dict[str, Any] = Body(...)):
         expires_at_dt = _parse_expires_at(payload.get("expires_at"))
 
         async with _pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO merchants (id, name)
-                VALUES (1, 'Demo Restaurant')
-                ON CONFLICT (id) DO NOTHING;
-                """
-            )
+            # detect columns for compatibility
+            cols = await conn.fetch("SELECT column_name FROM information_schema.columns WHERE table_name='offers'")
+            colset = {c["column_name"] for c in cols}
+            has_stock = "stock" in colset
 
-            row = await conn.fetchrow(
-                """
-                INSERT INTO offers
-                  (merchant_id, title, description, price, stock, category, image_url, expires_at, status, created_at)
-                VALUES
-                  ($1, $2, $3, $4, $5, COALESCE($6,'other'), $7, $8, 'active', NOW())
-                RETURNING id
-                """,
-                merchant_id,
-                payload.get("title"),
-                payload.get("description"),
-                float(payload.get("price")),
-                int(payload.get("stock")),
-                payload.get("category"),
-                image_url,
-                expires_at_dt,
-            )
+            if has_stock:
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO offers
+                      (merchant_id, title, description, price, stock, category, image_url, expires_at, status, created_at)
+                    VALUES
+                      ($1,$2,$3,$4,$5,COALESCE($6,'other'),$7,$8,'active',NOW())
+                    RETURNING id
+                    """,
+                    merchant_id,
+                    payload.get("title"),
+                    payload.get("description"),
+                    float(payload.get("price")),
+                    int(payload.get("stock")),
+                    payload.get("category"),
+                    image_url,
+                    expires_at_dt,
+                )
+            else:
+                qty = int(payload.get("stock"))
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO offers
+                      (merchant_id, title, description, price, qty_total, qty_left, category, image_url, expires_at, status, created_at)
+                    VALUES
+                      ($1,$2,$3,$4,$5,$6,COALESCE($7,'other'),$8,$9,'active',NOW())
+                    RETURNING id
+                    """,
+                    merchant_id,
+                    payload.get("title"),
+                    payload.get("description"),
+                    float(payload.get("price")),
+                    qty, qty,
+                    payload.get("category"),
+                    image_url,
+                    expires_at_dt,
+                )
             return {"offer_id": row["id"]}
     except HTTPException:
         raise
@@ -275,14 +293,16 @@ async def public_offers():
     async with _pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT o.id, o.title, o.description, o.price, o.stock, o.category,
+            SELECT o.id, o.title, o.description, o.price, o.category,
+                   COALESCE(o.qty_left, o.stock) AS qty_left,
+                   COALESCE(o.qty_total, o.stock) AS qty_total,
                    o.image_url, o.expires_at, o.status,
                    m.id AS merchant_id, m.name AS merchant_name, m.address
             FROM offers o
             JOIN merchants m ON m.id = o.merchant_id
             WHERE o.status = 'active'
               AND o.expires_at > NOW()
-              AND o.stock > 0
+              AND COALESCE(o.qty_left, o.stock, 0) > 0
             ORDER BY o.expires_at ASC
             LIMIT 200
             """
@@ -317,7 +337,6 @@ async def register_public(payload: Dict[str, Any] = Body(...)):
     pwd_hash = hash_password(password)
 
     async with _pool.acquire() as conn:
-        # Check duplicates
         exists = await conn.fetchval("SELECT 1 FROM merchants WHERE auth_login=$1", login)
         if exists:
             raise HTTPException(status_code=409, detail="merchant already exists")
@@ -369,7 +388,6 @@ async def get_profile(restaurant_id: int, request: Request):
         if not row:
             raise HTTPException(status_code=404, detail="not found")
         d = dict(row)
-        # Normalize for frontend
         if isinstance(d.get("close_time"), datetime):
             d["close_time"] = d["close_time"].strftime("%H:%M")
         return d
@@ -384,7 +402,6 @@ async def update_profile(payload: Dict[str, Any] = Body(...), request: Request =
         api_key = request.headers.get("X-Foody-Key") or request.headers.get("x-foody-key") or ""
     async with _pool.acquire() as conn:
         await _require_auth(conn, restaurant_id, api_key)
-        # Optional fields
         name = (payload.get("name") or "").strip() or None
         phone = (payload.get("phone") or "").strip() or None
         address = (payload.get("address") or "").strip() or None
@@ -426,7 +443,9 @@ async def list_my_offers(restaurant_id: int, request: Request):
         rows = await conn.fetch(
             """
             SELECT id, title, description, category, image_url, expires_at,
-                   price, original_price, COALESCE(qty_total, stock) AS qty_total, COALESCE(qty_left, stock) AS qty_left
+                   price, original_price,
+                   COALESCE(qty_total, stock) AS qty_total,
+                   COALESCE(qty_left, stock)  AS qty_left
             FROM offers
             WHERE merchant_id=$1
             ORDER BY created_at DESC
@@ -449,14 +468,15 @@ async def export_offers_csv(restaurant_id: int, request: Request):
         rows = await conn.fetch(
             """
             SELECT id, title, description, category, image_url, expires_at,
-                   price, original_price, COALESCE(qty_total, stock) AS qty_total, COALESCE(qty_left, stock) AS qty_left
+                   price, original_price,
+                   COALESCE(qty_total, stock) AS qty_total,
+                   COALESCE(qty_left, stock)  AS qty_left
             FROM offers
             WHERE merchant_id=$1
             ORDER BY created_at DESC
             """,
             restaurant_id,
         )
-        # Build CSV
         import csv
         from io import StringIO
         buf = StringIO()
@@ -504,12 +524,12 @@ async def create_offer_api(payload: Dict[str, Any] = Body(...), request: Request
             """
             INSERT INTO offers
               (merchant_id, title, description, category, image_url, expires_at,
-               price, original_price, qty_total, qty_left, status, created_at)
-            VALUES ($1,$2,$3,COALESCE($4,'other'),$5,$6,$7,$8,$9,$10,'active', NOW())
+               price, original_price, qty_total, qty_left, status, created_at, stock)
+            VALUES ($1,$2,$3,COALESCE($4,'other'),$5,$6,$7,$8,$9,$10,'active', NOW(), $11)
             RETURNING id
             """,
             restaurant_id, title, payload.get("description"), payload.get("category"),
-            image_url, expires_at_dt, float(price), float(original_price or 0), qty_total, qty_left
+            image_url, expires_at_dt, float(price), float(original_price or 0), qty_total, qty_left, qty_left
         )
         return {"offer_id": row["id"]}
 

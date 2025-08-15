@@ -4,22 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Foody · ЛК ресторана</title>
-  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="./style.css?v=dark3" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" />
-  <link rel="stylesheet" href="https://unpkg.com/filepond@^4/dist/filepond.min.css" />
-  <link rel="stylesheet" href="https://unpkg.com/filepond-plugin-image-preview@^4/dist/filepond-plugin-image-preview.min.css" />
-  <!-- Flatpickr & FilePond libs -->
   <script defer src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ru.js"></script>
-  <script defer src="https://unpkg.com/filepond-plugin-image-preview@^4/dist/filepond-plugin-image-preview.min.js"></script>
-  <script defer src="https://unpkg.com/filepond-plugin-file-validate-type@^1/dist/filepond-plugin-file-validate-type.min.js"></script>
-  <script defer src="https://unpkg.com/filepond-plugin-file-validate-size@^2/dist/filepond-plugin-file-validate-size.min.js"></script>
-  <script defer src="https://unpkg.com/filepond@^4/dist/filepond.min.js"></script>
-  <!-- FOODY API runtime config -->
   <script>window.foodyApi = (window.__FOODY__ && window.__FOODY__.FOODY_API) || window.foodyApi || 'https://foodyback-production.up.railway.app';</script>
   <script defer src="/config.js"></script>
-  <script defer src="/web/merchant/app.js?v=auth-slider-1"></script>
-  <script defer src="./create.enhance.js"></script>
+  <script defer src="./app.js?v=auth-patch"></script>
 </head>
 <body>
   <div class="app">
@@ -32,7 +23,7 @@
         </div>
       </div>
       <div class="tg-header__right">
-        <button id="logoutBtn" class="btn btn-ghost">Выйти</button>
+        <button id="logoutBtn" class="btn btn-ghost" style="display:none">Выйти</button>
       </div>
     </header>
 
@@ -45,7 +36,15 @@
     </nav>
 
     <main class="content">
-      <!-- AUTH -->
+      <!-- DASHBOARD -->
+      <section class="pane active" id="dashboard">
+        <div class="card">
+          <div class="card-title">Добро пожаловать</div>
+          <p class="muted">Войдите или зарегистрируйтесь, чтобы создавать офферы и управлять профилем.</p>
+        </div>
+      </section>
+
+      <!-- AUTH (без блока «Ближайшие офферы» по ТЗ) -->
       <section class="pane" id="auth">
         <div class="card card-glass">
           <div class="card-title">Войдите или зарегистрируйтесь</div>
@@ -68,6 +67,7 @@
               <label>Пароль
                 <input name="password" type="password" placeholder="••••••••" required>
               </label>
+              <div id="loginError" class="form-error hidden"></div>
               <button class="btn btn-primary" type="submit">Войти</button>
             </form>
 
@@ -81,17 +81,9 @@
               <label>Пароль
                 <input name="password" type="password" placeholder="мин. 6 символов" minlength="6" required>
               </label>
+              <div id="registerError" class="form-error hidden"></div>
               <button class="btn btn-primary" type="submit">Зарегистрироваться</button>
             </form>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">Ближайшие офферы</div>
-          <div id="dashboardOffers" class="list list-cards">
-            <div class="skeleton"></div>
-            <div class="skeleton"></div>
-            <div class="skeleton"></div>
           </div>
         </div>
       </section>
@@ -126,15 +118,6 @@
             </label>
             <label class="full">Действительно до
               <input name="expires_at" id="expires_at" placeholder="Сегодня 21:00" required>
-              <div id="quickTime" class="quick-group" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-                <button type="button" class="btn-ghost quick-btn" data-mins="30">+30 мин</button>
-                <button type="button" class="btn-ghost quick-btn" data-mins="60">+1 час</button>
-                <button type="button" class="btn-ghost quick-btn" data-mins="120">+2 часа</button>
-                <button type="button" class="btn-ghost quick-btn" data-eod="21:00">Сегодня 21:00</button>
-                <button type="button" class="btn-ghost quick-btn" data-close="1">К закрытию</button>
-              </div>
-              <div class="hint">Быстрый выбор: 30–120 минут, «Сегодня 21:00» или «К закрытию».</div>
-              <div class="hint">Таймер скидок привязан к этой точке.</div>
             </label>
             <label class="full">Категория
               <select name="category">
@@ -149,15 +132,12 @@
             <label class="full">Фото (опционально)
               <input type="file" id="photo" accept="image/*">
               <input type="hidden" name="image_url" id="image_url">
-              <div class="hint">Drag&drop, превью, лимит размера, мгновенная загрузка.</div>
-              <div id="photoPreviewWrap" class="photo-preview hidden">
-                <img id="photoPreview" alt="Предпросмотр" />
-              </div>
             </label>
             <label class="full">
-              <textarea name="description" rows="3" placeholder="Кратко: состав, для скольких порций и т.п."></textarea>
+              <textarea name="description" rows="3" placeholder="Кратко: состав, порции и т.п."></textarea>
             </label>
             <div class="full" style="display:flex;gap:8px;align-items:center;justify-content:flex-end;">
+              <div id="offerError" class="form-error hidden" style="margin-right:auto"></div>
               <button class="btn btn-primary" type="submit">Сохранить оффер</button>
             </div>
           </form>
@@ -219,30 +199,5 @@
 
     <div id="toast"></div>
   </div>
-
-  <!-- Fallback tabs gate -->
-  <script>
-    (function(){
-      function $(s,r=document){return r.querySelector(s)}
-      function $$(s,r=document){return Array.from(r.querySelectorAll(s))}
-      function activateTab(tab){
-        $$('.seg-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
-        $$('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
-        $$('.pane').forEach(p=>p.classList.toggle('active', p.id===tab));
-      }
-      try{
-        const rid = localStorage.getItem('foody_restaurant_id');
-        const key = localStorage.getItem('foody_key');
-        const tabs = $('#tabs');
-        if(!rid || !key){
-          activateTab('auth');
-          if(tabs) tabs.style.display='none';
-          var bn = document.querySelector('.bottom-nav'); if (bn) bn.style.display='none';
-        } else {
-          activateTab('dashboard');
-        }
-      }catch(e){}
-    })();
-  </script>
 </body>
 </html>

@@ -1,9 +1,9 @@
-(() => { console.log('[Foody] app.js (auth-hotfix) loaded');
+
+(() => { console.log('[Foody] merchant app loaded');
   const $ = (s, r=document) => r.querySelector(s);
   const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
   const on = (sel, evt, fn) => { const el = $(sel); if (el) el.addEventListener(evt, fn, { passive: false }); };
 
-  function moneyToCents(v){ try { return Math.round(parseFloat(v||'0')*100) } catch(e){ return 0 } }
   function dtLocalToIso(v){
     if (!v) return null;
     try {
@@ -326,9 +326,5 @@
     } catch (err) { console.error(err); showToast('Ошибка экспорта: ' + err.message) }
   });
 
-  // Init
-  document.addEventListener('DOMContentLoaded', () => {
-    gate();
-  });
-
+  document.addEventListener('DOMContentLoaded', () => { gate(); });
 })();

@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -16,7 +17,7 @@
   <script defer src="https://unpkg.com/filepond@^4/dist/filepond.min.js"></script>
   <script>window.foodyApi = (window.__FOODY__ && window.__FOODY__.FOODY_API) || window.foodyApi || 'https://foodyback-production.up.railway.app';</script>
   <script defer src="/config.js"></script>
-  <script defer src="/web/merchant/app.js?v=auth-hotfix-3"></script>
+  <script defer src="./app.js?v=merchant-full"></script>
   <script defer src="./create.enhance.js"></script>
 </head>
 <body>
@@ -43,6 +44,14 @@
     </nav>
 
     <main class="content">
+      <!-- DASHBOARD -->
+      <section class="pane active" id="dashboard">
+        <div class="card">
+          <div class="card-title">Добро пожаловать</div>
+          <p class="muted">Войдите или зарегистрируйтесь, чтобы создавать офферы и управлять профилем.</p>
+        </div>
+      </section>
+
       <!-- AUTH -->
       <section class="pane" id="auth">
         <div class="card card-glass">
@@ -132,6 +141,9 @@
             <label class="full">Фото (опционально)
               <input type="file" id="photo" accept="image/*">
               <input type="hidden" name="image_url" id="image_url">
+              <div id="photoPreviewWrap" class="photo-preview hidden">
+                <img id="photoPreview" alt="Предпросмотр" />
+              </div>
             </label>
             <label class="full">
               <textarea name="description" rows="3" placeholder="Кратко: состав, порции и т.п."></textarea>
@@ -199,32 +211,5 @@
 
     <div id="toast"></div>
   </div>
-
-  <script>
-    (function(){
-      function $(s,r=document){return r.querySelector(s)}
-      function $$(s,r=document){return Array.from(r.querySelectorAll(s))}
-      function activateTab(tab){
-        $$('.seg-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
-        $$('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
-        $$('.pane').forEach(p=>p.classList.toggle('active', p.id===tab));
-      }
-      try{
-        const rid = localStorage.getItem('foody_restaurant_id');
-        const key = localStorage.getItem('foody_key');
-        const tabs = $('#tabs');
-        const logoutBtn = $('#logoutBtn');
-        if(!rid || !key){
-          activateTab('auth');
-          if(tabs) tabs.style.display='none';
-          var bn = document.querySelector('.bottom-nav'); if (bn) bn.style.display='none';
-          if (logoutBtn) logoutBtn.style.display='none';
-        } else {
-          if (logoutBtn) logoutBtn.style.display='';
-          activateTab('dashboard');
-        }
-      }catch(e){}
-    })();
-  </script>
 </body>
 </html>
